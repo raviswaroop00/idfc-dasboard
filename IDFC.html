@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IDFC First Bank - Mortgage Loans Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: #f6f7f9; color: #2c3e50; overflow-x: hidden;
+    }
+    .dashboard-container { display:flex; min-height:100vh; }
+
+    /* SIDEBAR */
+	.sidebar {
+	  width:280px; background:#7A0C10; color:#fff; padding:20px 0;
+	  position:fixed; left:0; top:0; bottom:0; box-shadow:2px 0 10px rgba(0,0,0,.08);
+	  z-index:10; transition:width .25s;
+	  overflow-x: hidden; /* NEW: prevent horizontal overflow when collapsed */
+	}
+
+    .sidebar.collapsed { width:80px; }
+    .sidebar-toggle {
+      position:absolute; top:16px; right:12px; background:rgba(255,255,255,.18);
+      border:none; color:#fff; padding:8px; border-radius:6px; cursor:pointer;
+    }
+    .sidebar-toggle:hover { background:rgba(255,255,255,.28); }
+    .sidebar-header { padding:8px 20px 22px; border-bottom:1px solid rgba(255,255,255,.15); }
+	/* Logo in sidebar */
+	.bank-logo-wrap { display:flex; align-items:center; gap:10px; }
+	.bank-logo-img { height:28px; width:auto; display:block; }
+	/* Prevent text overflow in header */
+	.sidebar-header { overflow: hidden; }
+	.bank-logo, .dashboard-title {
+	  white-space: nowrap;
+	  overflow: hidden;
+	  text-overflow: ellipsis;
+	}
+	/* Collapsed sidebar: center the logo, hide long texts, reduce padding */
+	.sidebar.collapsed .sidebar-header { padding: 8px 10px 22px; }
+	.sidebar.collapsed .bank-logo-wrap { justify-content: center; }
+	.sidebar.collapsed .bank-logo { display: none; }        /* hide "IDFC FIRST" text */
+	.sidebar.collapsed .dashboard-title { display: none; }  /* hide "Mortgage Dashboard" */
+	.sidebar.collapsed .bank-logo-img {
+	  height: 26px;         /* smaller logo */
+	  width: auto;
+	  max-width: 56px;      /* fits within 80px width including padding */
+	}
+	.sidebar.collapsed .sidebar-toggle { right: 6px; }      /* keep toggle inside */
+
+    .bank-logo { font-weight:800; letter-spacing:.5px; }
+    .dashboard-title { font-weight:800; letter-spacing:.5px; }
+    .sidebar-nav { padding:14px 0; }
+    .nav-item {
+      display:flex; align-items:center; gap:14px; padding:12px 20px;
+      border-left:4px solid transparent; cursor:pointer;
+    }
+    .nav-item:hover, .nav-item.active { background:rgba(255,255,255,.10); border-left-color:#fff; }
+    .nav-icon { width:22px; text-align:center; }
+    .sidebar.collapsed .nav-text { display:none; }
+
+    /* MAIN */
+    .main-content { margin-left:280px; flex:1; padding:22px; transition:margin-left .25s; position: relative;  }
+    .main-content.expanded { margin-left:80px; }
+
+    /* FILTERS */
+    .filters-bar {
+      background:#fff; border:1px solid #e7eaee; border-radius:12px;
+      padding:12px 16px; margin-bottom:18px; display:flex; gap:14px; align-items:center;
+      flex-wrap:wrap; box-shadow:0 2px 8px rgba(0,0,0,.04);
+    }
+    .filter-group { display:flex; align-items:center; gap:8px; }
+    .filter-label { font-weight:700; color:#334155; font-size:.9rem; }
+    .filter-select {
+      padding:8px 12px; border:1px solid #dcdfe3; border-radius:8px; background:#fff;
+      cursor:pointer; min-width:120px;
+    }
+    .filter-select:focus { outline:none; border-color:#7A0C10; box-shadow:0 0 0 2px rgba(122,12,16,.10); }
+    .filter-indicator {
+      margin-left:auto; background:#7A0C10; color:#fff; font-size:.72rem; padding:3px 8px;
+      border-radius:999px; opacity:0; transition:opacity .2s;
+    }
+    .filter-indicator.active { opacity:1; }
+
+    /* KPI CARDS */
+    .kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:18px; margin-bottom:18px; }
+    .kpi-card {
+      background:#fff; border:1px solid #e7eaee; border-radius:12px; padding:18px;
+      position:relative; cursor:pointer; transition:box-shadow .2s, border-color .2s, transform .2s;
+    }
+    .kpi-card:hover { box-shadow:0 10px 22px rgba(0,0,0,.10); border-color:#7A0C10; transform:translateY(-1px); }
+    .kpi-label { font-size:.8rem; color:#6b7280; text-transform:uppercase; font-weight:800; letter-spacing:.4px; }
+    .kpi-value { font-size:2rem; font-weight:900; color:#111827; margin:8px 0 2px; }
+    .kpi-trend { font-weight:700; font-size:.86rem; display:flex; align-items:center; gap:6px; }
+    .trend-up { color:#16a34a; } .trend-down { color:#e11d48; } .trend-flat { color:#6b7280; }
+    .trend-arrow { font-size:1.2rem; }
+
+    /* TOOLTIP */
+    .tooltip {
+      position:absolute; background:#111827; color:#fff; padding:10px 12px; border-radius:8px;
+      font-size:.82rem; z-index:100; opacity:0; pointer-events:none; transition:opacity .15s; white-space:pre-line;
+    }
+    .tooltip.show { opacity:1; }
+
+    /* CHART CARDS */
+    .charts-row { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:18px; }
+    .chart-card {
+      background:#fff; border:1px solid #e7eaee; border-radius:12px; padding:20px; overflow:hidden;
+    }
+    .chart-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .chart-title { font-weight:800; }
+    .chart-container { position:relative; height:260px; }
+    .chart-filters { display:flex; gap:8px; }
+    .chart-filter-btn { padding:4px 10px; border:1px solid #dcdfe3; border-radius:6px; background:#fff; cursor:pointer; font-size:.82rem; }
+    .chart-filter-btn.active, .chart-filter-btn:hover { background:#7A0C10; color:#fff; border-color:#7A0C10; }
+
+    /* --- GNPA tile sizing & overflow fix --- */
+    #gnpaCard .chart-container { height:220px; max-height:240px; }
+    #gnpaCard canvas { max-width:100%; }
+
+    /* BOTTOM */
+    .bottom-row { display:grid; grid-template-columns:2fr 1fr; gap:18px; }
+    .alerts-panel .alert-item {
+      display:flex; gap:10px; align-items:flex-start; border-left:4px solid; padding:10px 12px;
+      border-radius:10px; margin-bottom:10px; cursor:pointer; transition:transform .15s, box-shadow .15s;
+    }
+    .alert-item:hover { transform:translateX(4px); box-shadow:0 2px 10px rgba(0,0,0,.06); }
+    .alert-high { background:#fef2f2; border-left-color:#ef4444; }
+    .alert-medium { background:#fffbeb; border-left-color:#f59e0b; }
+    .alert-low { background:#ecfdf5; border-left-color:#10b981; }
+    .alert-icon { width:10px; height:10px; border-radius:999px; margin-top:4px; }
+    .alert-high .alert-icon { background:#ef4444; } .alert-medium .alert-icon { background:#f59e0b; } .alert-low .alert-icon { background:#10b981; }
+    .alert-content h4 { font-size:.9rem; }
+    .alert-content p { font-size:.8rem; color:#6b7280; margin-top:2px; }
+
+    /* MODAL */
+    .modal-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center;
+      z-index:50; opacity:0; visibility:hidden; transition:opacity .2s, visibility .2s;
+    }
+    .modal-overlay.show { opacity:1; visibility:visible; }
+    .modal-content { background:#fff; border-radius:14px; width:min(900px,92vw); max-height:84vh; overflow:auto; padding:24px; }
+    .modal-header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e7eaee; padding-bottom:12px; margin-bottom:14px; }
+    .modal-title { font-size:1.2rem; font-weight:800; }
+    .modal-close { border:none; background:none; font-size:1.6rem; cursor:pointer; }
+    .modal-table { width:100%; border-collapse:collapse; }
+    .modal-table th, .modal-table td { padding:10px; border-bottom:1px solid #eef1f5; text-align:left; }
+    .modal-table th { background:#fafafa; }
+	/* --- WIP Overlay (clicking other sidebar items) --- */
+	.wip-overlay{
+	  position: absolute;
+	  inset: 0;                       /* cover whole main-content */
+	  background: #fff;
+	  border: 1px solid #e7eaee;
+	  border-radius: 12px;
+	  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+	  display: none;                  /* toggled by JS */
+	  align-items: center;
+	  justify-content: center;
+	  z-index: 5;                     /* above charts, below modal */
+	}
+	.wip-inner{ text-align: center; padding: 40px 28px; }
+	.wip-title{ font-size: 1.4rem; font-weight: 800; margin-bottom: 6px; color: #111827; }
+	.wip-subtitle{ font-size: .95rem; color: #6b7280; }
+
+    /* RESPONSIVE */
+    @media (max-width:1200px) {
+      .kpi-row { grid-template-columns:repeat(3,1fr); }
+      .charts-row { grid-template-columns:1fr; }
+      .bottom-row { grid-template-columns:1fr; }
+    }
+    @media (max-width:768px) {
+      .sidebar { transform:translateX(-100%); }
+      .sidebar.mobile-open { transform:translateX(0); }
+      .main-content { margin-left:0; }
+      .kpi-row { grid-template-columns:1fr 1fr; }
+      .filters-bar { flex-direction:column; align-items:stretch; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="dashboard-container">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+      <div class="sidebar-header">
+		  <div class="bank-logo-wrap">
+			<!-- Put the logo file here: ./assets/idfc-logo.png -->
+			<img src="./assets/idfc-logo.png" alt="IDFC FIRST Bank" class="bank-logo-img">
+			<div class="bank-logo"></div>
+		  </div>
+		  <div class="dashboard-title">Mortgage Dashboard</div>
+		</div>
+      <nav class="sidebar-nav">
+        <div class="nav-item active" onclick="setActiveSection('roa', this)">
+		  <div class="nav-icon">📊</div><div class="nav-text">ROA</div>
+		</div>
+		<div class="nav-item" onclick="setActiveSection('disb', this)">
+		  <div class="nav-icon">💰</div><div class="nav-text">Disbursement</div>
+		</div>
+		<div class="nav-item" onclick="setActiveSection('npas', this)">
+		  <div class="nav-icon">⚠️</div><div class="nav-text">NPAs</div>
+		</div>
+		<div class="nav-item" onclick="setActiveSection('insights', this)">
+		  <div class="nav-icon">🔍</div><div class="nav-text">Insights</div>
+		</div>
+		<div class="nav-item" onclick="setActiveSection('reports', this)">
+		  <div class="nav-icon">📋</div><div class="nav-text">Reports</div>
+		</div>
+
+      </nav>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main-content" id="mainContent">
+	<!-- WIP Overlay (hidden by default) -->
+	<div id="wipOverlay" class="wip-overlay">
+	  <div class="wip-inner">
+		<div style="font-size:48px; margin-bottom:12px;">🛠️</div>
+		<h2 class="wip-title">Work in progress</h2>
+		<p class="wip-subtitle"><span id="wipSectionName">This section</span> will be available soon.</p>
+	  </div>
+	</div>
+
+      <!-- FILTERS -->
+      <div class="filters-bar">
+        <div class="filter-group">
+          <span class="filter-label">Segment:</span>
+          <select class="filter-select" id="segmentFilter" onchange="applyFilter('segment',this.value)">
+            <option value="all">All</option>
+            <option value="hl">Home Loans</option>
+            <option value="lap">LAP</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Channel:</span>
+          <select class="filter-select" id="channelFilter" onchange="applyFilter('channel',this.value)">
+            <option value="all">All Channels</option>
+            <option value="branch">Branch</option>
+            <option value="dsa">DSA</option>
+            <option value="digital">Digital</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Region:</span>
+          <select class="filter-select" id="regionFilter" onchange="applyFilter('region',this.value)">
+            <option value="all">All Regions</option>
+            <option value="north">North</option>
+            <option value="south">South</option>
+            <option value="east">East</option>
+            <option value="west">West</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Period:</span>
+          <select class="filter-select" id="periodFilter" onchange="applyFilter('period',this.value)">
+            <option value="ytd">YTD</option>
+            <option value="qtd">QTD</option>
+            <option value="mtd">MTD</option>
+          </select>
+        </div>
+        <span class="filter-indicator" id="filterIndicator">Filtered</span>
+      </div>
+
+      <!-- KPI CARDS -->
+      <section class="kpi-row">
+        <div class="kpi-card" onclick="drillDown('roa')"
+             onmouseover="showTooltip(event, getTooltip('roa'))" onmouseout="hideTooltip()">
+          <div class="kpi-label">ROA %</div>
+          <div class="kpi-value" id="roaValue">1.6%</div>
+          <div class="kpi-trend trend-up" id="roaTrend"><span class="trend-arrow">↗</span><span>+0.2% QoQ</span></div>
+        </div>
+
+        <div class="kpi-card" onclick="drillDown('disbursement')"
+             onmouseover="showTooltip(event, getTooltip('disb'))" onmouseout="hideTooltip()">
+          <div class="kpi-label">Disbursement</div>
+          <div class="kpi-value" id="disbValue">₹2.5K Cr</div>
+          <div class="kpi-trend trend-up" id="disbTrend"><span class="trend-arrow">↗</span><span>+16% MoM</span></div>
+        </div>
+
+        <div class="kpi-card" onclick="drillDown('target')"
+             onmouseover="showTooltip(event, getTooltip('target'))" onmouseout="hideTooltip()">
+          <div class="kpi-label">Target vs Actual</div>
+          <div class="kpi-value" id="targetValue">16%</div>
+          <div class="kpi-trend trend-up"><span class="trend-arrow">↗</span><span>Above Target</span></div>
+        </div>
+
+        <div class="kpi-card" onclick="drillDown('gnpa')"
+             onmouseover="showTooltip(event, getTooltip('gnpa'))" onmouseout="hideTooltip()">
+          <div class="kpi-label">Gross NPA %</div>
+          <div class="kpi-value" id="gnpaValue">2.1%</div>
+          <div class="kpi-trend trend-down" id="gnpaTrend"><span class="trend-arrow">↘</span><span>-0.1% MoM</span></div>
+        </div>
+
+        <div class="kpi-card" onclick="drillDown('nnpa')">
+          <div class="kpi-label">NNPA %</div>
+          <div class="kpi-value" id="nnpaValue">0.9%</div>
+          <div class="kpi-trend trend-flat"><span class="trend-arrow">→</span><span>No change</span></div>
+        </div>
+
+        <div class="kpi-card" onclick="drillDown('credit')">
+          <div class="kpi-label">Credit Cost %</div>
+          <div class="kpi-value" id="ccValue">0.4%</div>
+          <div class="kpi-trend trend-up"><span class="trend-arrow">↗</span><span>+0.1% MoM</span></div>
+        </div>
+      </section>
+
+      <!-- CHARTS -->
+      <section class="charts-row">
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3 class="chart-title">Disbursement Projection vs Actual</h3>
+            <div class="chart-filters">
+              <button class="chart-filter-btn active" onclick="setChartView('disbursement','6m',this)">6M</button>
+              <button class="chart-filter-btn" onclick="setChartView('disbursement','12m',this)">12M</button>
+              <button class="chart-filter-btn" onclick="setChartView('disbursement','ytd',this)">YTD</button>
+            </div>
+          </div>
+          <div class="chart-container"><canvas id="disbursementTrendChart"></canvas></div>
+        </div>
+
+        <div class="chart-card" id="gnpaCard">
+          <div class="chart-header">
+            <h3 class="chart-title">GNPA Distribution</h3>
+            <div class="chart-filters">
+              <button class="chart-filter-btn active" onclick="setChartView('gnpa','segment',this)">Segment</button>
+              <button class="chart-filter-btn" onclick="setChartView('gnpa','channel',this)">Channel</button>
+              <button class="chart-filter-btn" onclick="setChartView('gnpa','region',this)">Region</button>
+            </div>
+          </div>
+          <div class="chart-container"><canvas id="gnpaDistributionChart"></canvas></div>
+        </div>
+      </section>
+
+      <!-- BOTTOM -->
+      <section class="bottom-row">
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3 class="chart-title">Flow Rates (M0→M1→M2→NPA)</h3>
+            <div class="chart-filters">
+              <button class="chart-filter-btn active" onclick="setChartView('flow','quarterly',this)">Quarterly</button>
+              <button class="chart-filter-btn" onclick="setChartView('flow','monthly',this)">Monthly</button>
+            </div>
+          </div>
+          <div class="chart-container"><canvas id="flowRatesChart"></canvas></div>
+        </div>
+
+        <div class="chart-card alerts-panel">
+          <div class="chart-header"><h3 class="chart-title">Early Warning Signals</h3></div>
+          <div id="alertsContainer">
+            <div class="alert-item alert-high" onclick="drillDown('alert','mumbai-dsa')">
+              <span class="alert-icon"></span>
+              <div class="alert-content"><h4>Mumbai Metro DSA</h4><p>NPA spike: 4.2% vs 2.8% avg</p></div>
+            </div>
+            <div class="alert-item alert-medium" onclick="drillDown('alert','delhi-lap')">
+              <span class="alert-icon"></span>
+              <div class="alert-content"><h4>Delhi NCR – LAP</h4><p>High LTV concentration &gt; 85%</p></div>
+            </div>
+            <div class="alert-item alert-medium" onclick="drillDown('alert','pune-branch')">
+              <span class="alert-icon"></span>
+              <div class="alert-content"><h4>Pune Branch</h4><p>Collection efficiency at 92%</p></div>
+            </div>
+            <div class="alert-item alert-low" onclick="drillDown('alert','bangalore')">
+              <span class="alert-icon"></span>
+              <div class="alert-content"><h4>Bengaluru Region</h4><p>Strong performance: ROA 1.9%</p></div>
+            </div>
+            <div class="alert-item alert-high" onclick="drillDown('alert','dsga-108')">
+              <span class="alert-icon"></span>
+              <div class="alert-content"><h4>DSGA 108 Cluster</h4><p>Early warning triggered</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Tooltip -->
+  <div class="tooltip" id="tooltip"></div>
+
+  <!-- MODAL -->
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modalTitle">Detailed Analysis</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+    /* ========== UTILITIES & STATE ========== */
+    const $ = (q) => document.querySelector(q);
+    const $$ = (q) => document.querySelectorAll(q);
+
+    let currentFilters = { segment:'all', channel:'all', region:'all', period:'ytd' };
+    const filterIndicator = $('#filterIndicator');
+
+    const charts = {};
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    function prng(seed){ let s=seed; return ()=> (s=(s*9301+49297)%233280)/233280; }
+    function genSeries(n, base=100, drift=2, vol=6, seed=42){
+      const rand = prng(seed); const out=[]; let v=base;
+      for(let i=0;i<n;i++){ v+= (drift + (rand()-0.5)*vol); out.push(Math.max(0,Math.round(v))); }
+      return out;
+    }
+		// Generate bounded percentage-like series (0–60 range)
+	function genPctSeries(n, base=30, drift=0.5, vol=6, seed=99, max=60) {
+	  const arr = genSeries(n, base, drift, vol, seed);
+	  return arr.map(v => Math.max(0, Math.min(max, Math.round(v))));
+	}
+
+	// Recompute Flow data based on current labels length and filters
+	function recomputeFlowData() {
+	  if (!charts.flow) return;
+	  const len = charts.flow.data.labels.length || 4;
+	  const bump = currentFilters.channel === 'dsa' ? 6
+				 : currentFilters.channel === 'digital' ? 2
+				 : 0;
+
+	  charts.flow.data.datasets[0].data = genPctSeries(len, 30 + bump,   0.4, 6, 71); // M0→M1
+	  charts.flow.data.datasets[1].data = genPctSeries(len, 18 + bump/3, 0.3, 5, 73); // M1→M2
+	  charts.flow.data.datasets[2].data = genPctSeries(len,  8 + bump/5, 0.2, 4, 79); // M2→NPA
+	  charts.flow.update();
+	}
+
+    function fmtCr(x){ return x>=1000 ? `₹${(x/1000).toFixed(1)}K Cr` : `₹${x} Cr`; }
+
+    /* ========== KPI DATA (mocked) ========== */
+    function getKpiFor(filters){
+      const base = { roa:1.6, roaDelta:0.2, disb:2500, disbDelta:16, targetHit:16, gnpa:2.1, nnpa:0.9, cc:0.4 };
+      let adj = 0;
+      if(filters.segment==='hl') adj -= 0.1;
+      if(filters.segment==='lap') adj += 0.15;
+      if(filters.channel==='digital') adj += 0.05;
+      if(filters.channel==='dsa') adj += 0.12;
+      if(filters.region==='south') adj -= 0.05;
+      if(filters.region==='north') adj += 0.05;
+
+      const p = filters.period;
+      const periodAdj = (p==='mtd'? -0.1 : p==='qtd'? -0.05 : 0);
+
+      const roa = +(base.roa + adj + periodAdj).toFixed(1);
+      const gnpa = +(base.gnpa + (adj>0? adj/2: adj/3)).toFixed(1);
+      const nnpa = Math.max(0, +(base.nnpa + (gnpa-base.gnpa)/2).toFixed(1));
+      const disb = Math.round(base.disb*(1 + (filters.channel==='branch'? .05:0) + (filters.segment==='lap'? .08:0)));
+      const cc = Math.max(0.2, +(base.cc + (gnpa-base.gnpa)/5).toFixed(1));
+
+      return {
+        roa: `${roa}%`,
+        roaTrend: `${base.roaDelta>0?'+':''}${base.roaDelta}% QoQ`,
+        disb: fmtCr(disb),
+        disbTrend: `${base.disbDelta>0?'+':''}${base.disbDelta}% MoM`,
+        target: `${base.targetHit}%`,
+        gnpa: `${gnpa}%`,
+        nnpa: `${nnpa}%`,
+        cc: `${cc}%`,
+        trendDir: base.roaDelta>=0?'up':'down'
+      };
+    }
+
+    /* ========== FILTERS ========== */
+    function applyFilter(type,val){
+      currentFilters[type]=val;
+      const any = Object.values(currentFilters).some(v=>v!=='all' && v!=='ytd');
+      filterIndicator.classList.toggle('active', any);
+      updateKPIs();
+      updateCharts();
+    }
+
+    function toggleSidebar(){
+      $('#sidebar').classList.toggle('collapsed');
+      $('#mainContent').classList.toggle('expanded');
+    }
+    function setActiveSection(key, el){
+	  // highlight the clicked item
+	  $$('.nav-item').forEach(n => n.classList.remove('active'));
+	  if (el) el.classList.add('active');
+
+	  // show/hide WIP overlay
+	  const overlay = document.getElementById('wipOverlay');
+	  const names = { roa:'ROA', disb:'Disbursement', npas:'NPAs', insights:'Insights', reports:'Reports' };
+
+	  if (key === 'roa') {
+		overlay.style.display = 'none';     // show the real dashboard
+	  } else {
+		overlay.style.display = 'flex';     // cover content with WIP
+		const t = document.getElementById('wipSectionName');
+		if (t) t.textContent = names[key] || 'This section';
+	  }
+	}
+
+	// Ensure default view is ROA on load (overlay hidden)
+	document.addEventListener('DOMContentLoaded', () => {
+	  const firstItem = document.querySelector('.sidebar-nav .nav-item');
+	  setActiveSection('roa', firstItem);
+	});
+
+    /* ========== KPI RENDER ========== */
+    function updateKPIs(){
+      const k = getKpiFor(currentFilters);
+      $('#roaValue').textContent = k.roa;
+      $('#disbValue').textContent = k.disb;
+      $('#targetValue').textContent = k.target;
+      $('#gnpaValue').textContent = k.gnpa;
+      $('#nnpaValue').textContent = k.nnpa;
+      $('#ccValue').textContent = k.cc;
+
+      const roaT = $('#roaTrend'); roaT.className='kpi-trend ' + (k.trendDir==='up'?'trend-up':'trend-down');
+      roaT.innerHTML = `<span class="trend-arrow">${k.trendDir==='up'?'↗':'↘'}</span><span>${k.roaTrend}</span>`;
+      $('#disbTrend').innerHTML = `<span class="trend-arrow">↗</span><span>${k.disbTrend}</span>`;
+    }
+
+    /* ========== TOOLTIP ========== */
+    function getTooltip(kind){
+      if(kind==='roa') return "ROA = Net Income / Average Assets.\nClick for decomposition (yield, opex, credit cost).";
+      if(kind==='disb') return "Total disbursements this period.\nClick to view pipeline stages.";
+      if(kind==='target') return "Target vs Actual growth.\nClick to see growth by channel/region.";
+      if(kind==='gnpa') return "Gross NPA percentage.\nClick segments to filter.";
+      return "";
+    }
+    const tooltip = document.getElementById('tooltip');
+    function showTooltip(e,text){
+      tooltip.textContent = text; tooltip.classList.add('show');
+      const rect = e.currentTarget.getBoundingClientRect();
+      tooltip.style.top = (rect.top + window.scrollY - 10) + 'px';
+      tooltip.style.left = (rect.left + rect.width/2 - 120) + 'px';
+    }
+    function hideTooltip(){ tooltip.classList.remove('show'); }
+
+    /* ========== CHART HELPERS ========== */
+    function makeLine(ctx, labels, a, p){
+      return new Chart(ctx,{
+        type:'line',
+        data:{labels,datasets:[
+          {label:'Actual',data:a,borderWidth:2,fill:false},
+          {label:'Projection',data:p,borderDash:[6,6],borderWidth:2,fill:false}
+        ]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{beginAtZero:false}}}
+      });
+    }
+
+    /* UPDATED: Doughnut with color palettes + aspect fix */
+    function makeDoughnut(ctx, labels, data, mode='segment'){
+      const palette = {
+        segment: ['#2563eb', '#e11d48'],                 // HL, LAP
+        channel: ['#dc2626', '#2563eb', '#f59e0b'],      // Branch, DSA, Digital
+        region:  ['#7c3aed', '#16a34a', '#2563eb', '#f59e0b'] // N, S, E, W
+      };
+      return new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data, backgroundColor: palette[mode], borderWidth: 0 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '65%',
+          layout: { padding: 10 },
+          plugins: {
+            legend: { position: 'right', labels: { usePointStyle: true, boxWidth: 10 } }
+          }
+        }
+      });
+    }
+
+    /* ========== BUILD CHARTS ========== */
+    function buildCharts(){
+      const dCtx = document.getElementById('disbursementTrendChart').getContext('2d');
+      const gCtx = document.getElementById('gnpaDistributionChart').getContext('2d');
+      const fCtx = document.getElementById('flowRatesChart').getContext('2d');
+
+      // Themed & interactive line (Actual vs Projection)
+const disbLabels = months.slice(0, 9);
+const disbActual  = genSeries(9, 700, 40, 70, 11);
+const disbProj    = genSeries(9, 680, 55, 60, 21);
+
+// Gradient for the Actual line (IDFC red → lighter red)
+const grad = dCtx.createLinearGradient(0, 0, 0, 260);
+grad.addColorStop(0, '#7A0C10');
+grad.addColorStop(1, '#a01418');
+
+	charts.disb = new Chart(dCtx, {
+	  type: 'line',
+	  data: {
+		labels: disbLabels,
+		datasets: [
+		  {
+			label: 'Actual',
+			data: disbActual,
+			borderColor: grad,
+			backgroundColor: 'rgba(122,12,16,0.10)',   // soft fill
+			fill: 'origin',
+			pointBackgroundColor: '#7A0C10',
+			pointHoverBackgroundColor: '#7A0C10',
+			pointRadius: 3,
+			pointHoverRadius: 6,
+			borderWidth: 2,
+			tension: 0.35
+		  },
+		  {
+			label: 'Projection',
+			data: disbProj,
+			borderColor: '#9ca3af',
+			backgroundColor: 'transparent',
+			borderDash: [6, 6],
+			pointRadius: 0,
+			borderWidth: 2,
+			tension: 0.35
+		  }
+		]
+	  },
+	  options: {
+		responsive: true,
+		maintainAspectRatio: false,
+		interaction: { mode: 'nearest', intersect: false },
+		plugins: {
+		  legend: { position: 'bottom' },
+		  tooltip: {
+			callbacks: {
+			  label: (ctx) => ` ${ctx.dataset.label}: ₹${ctx.parsed.y} Cr`
+			}
+		  }
+		},
+		scales: {
+		  y: { beginAtZero: false }
+		},
+		animation: { duration: 700, easing: 'easeOutQuart' }
+	  }
+	});
+
+
+      charts.gnpa = makeDoughnut(gCtx, ['Home Loans','LAP'], [72,28], 'segment');
+
+      // Themed grouped bars + nicer hover for Flow Rates
+		charts.flow = new Chart(fCtx, {
+		  type: 'bar',
+		  data: {
+			labels: ['Q1','Q2','Q3','Q4'],
+			datasets: [
+			  {
+				label: 'M0→M1',
+				data: [30, 42, 35, 28],
+				backgroundColor: 'rgba(122,12,16,0.85)',   // IDFC red
+				hoverBackgroundColor: 'rgba(122,12,16,1)',
+				borderRadius: 6
+			  },
+			  {
+				label: 'M1→M2',
+				data: [18, 22, 20, 14],
+				backgroundColor: 'rgba(37,99,235,0.85)',   // Blue
+				hoverBackgroundColor: 'rgba(37,99,235,1)',
+				borderRadius: 6
+			  },
+			  {
+				label: 'M2→NPA',
+				data: [8, 9, 7, 6],
+				backgroundColor: 'rgba(245,158,11,0.85)',  // Orange/Amber
+				hoverBackgroundColor: 'rgba(245,158,11,1)',
+				borderRadius: 6
+			  }
+			]
+		  },
+		  options: {
+			responsive: true,
+			maintainAspectRatio: false,
+			plugins: {
+			  legend: { position: 'bottom' },
+			  tooltip: {
+				callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}%` }
+			  }
+			},
+			scales: {
+			  x: { stacked: false },
+			  y: { beginAtZero: true, max: 60, ticks: { callback: v => v + '%' } }
+			},
+			animation: { duration: 700, easing: 'easeOutQuart' }
+		  }
+		});
+
+    }
+
+    /* ========== UPDATE CHARTS ON FILTERS/TOGGLES ========== */
+    function updateCharts(){
+      const len = 9;
+      const seed = currentFilters.segment==='lap'? 33 : currentFilters.segment==='hl'? 13 : 23;
+      charts.disb.data.labels = months.slice(0,len);
+      charts.disb.data.datasets[0].data = genSeries(len, 700 + (seed%5)*40, 45, 60, seed);
+      charts.disb.data.datasets[1].data = genSeries(len, 680 + (seed%7)*30, 55, 55, seed+7);
+      charts.disb.update();
+
+      // GNPA split varies by segment
+      let split = currentFilters.segment==='lap'? [40,60] : [75,25];
+      charts.gnpa.data.datasets[0].data = split;
+      charts.gnpa.update();
+
+      // Flow: recompute to match current view (quarterly/monthly) and filters
+	  recomputeFlowData();
+    }
+
+    function setChartView(which,mode,btn){
+      if(btn){
+        const group = btn.parentElement.querySelectorAll('.chart-filter-btn');
+        group.forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+
+      if(which==='disbursement'){
+        const len = mode==='6m'? 6 : mode==='12m'? 12 : 9;
+        charts.disb.data.labels = months.slice(0,len);
+        charts.disb.data.datasets[0].data = genSeries(len, 700, 45, 60, 31);
+        charts.disb.data.datasets[1].data = genSeries(len, 680, 55, 55, 39);
+        charts.disb.update();
+      }
+
+      if (which === 'gnpa') {
+        const palette = {
+          segment: ['#2563eb', '#e11d48'],
+          channel: ['#dc2626', '#2563eb', '#f59e0b'],
+          region:  ['#7c3aed', '#16a34a', '#2563eb', '#f59e0b']
+        };
+
+        if (mode === 'segment') {
+          charts.gnpa.data.labels = ['Home Loans', 'LAP'];
+          charts.gnpa.data.datasets[0].data = [75, 25];
+          charts.gnpa.data.datasets[0].backgroundColor = palette.segment;
+        }
+        if (mode === 'channel') {
+          charts.gnpa.data.labels = ['Branch', 'DSA', 'Digital'];
+          charts.gnpa.data.datasets[0].data = [60, 28, 12];
+          charts.gnpa.data.datasets[0].backgroundColor = palette.channel;
+        }
+        if (mode === 'region') {
+          charts.gnpa.data.labels = ['North', 'South', 'East', 'West'];
+          charts.gnpa.data.datasets[0].data = [24, 22, 18, 16];
+          charts.gnpa.data.datasets[0].backgroundColor = palette.region;
+        }
+        charts.gnpa.update();
+      }
+
+		if (which === 'flow') {
+		  if (mode === 'quarterly') {
+			charts.flow.data.labels = ['Q1','Q2','Q3','Q4'];
+		  } else if (mode === 'monthly') {
+			charts.flow.data.labels = months.slice(0, 8); // 8 months
+		  }
+		  // Rebuild datasets length to match labels
+		  recomputeFlowData();
+		}
+
+    }
+
+    /* ========== MODAL / DRILL-DOWN ========== */
+    function drillDown(type, id){
+      const modal = $('#modalOverlay'); const title = $('#modalTitle'); const body = $('#modalBody');
+      modal.classList.add('show');
+      if(type==='roa'){ title.textContent='ROA Decomposition'; body.innerHTML=getRoADecomp(); return; }
+      if(type==='disbursement'){ title.textContent='Disbursement Pipeline'; body.innerHTML=getPipelineTable(); return; }
+      if(type==='gnpa'){ title.textContent='GNPA Details'; body.innerHTML=getGnpaTable(); return; }
+      if(type==='alert'){ title.textContent='Alert Details'; body.innerHTML=getAlertDetail(id); return; }
+      title.textContent='Details'; body.textContent='Loading...';
+    }
+    function closeModal(){ $('#modalOverlay').classList.remove('show'); }
+
+    function tableFrom(rows, heads){
+      let h = '<table class="modal-table"><thead><tr>' + heads.map(x=>'<th>'+x+'</th>').join('') + '</tr></thead><tbody>';
+      rows.forEach(r=> h += '<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>');
+      h += '</tbody></table>'; return h;
+    }
+    function getRoADecomp(){
+      const rows = [
+        ['Yield (Interest Income %)', '8.1%'],
+        ['Operating Cost %', '2.9%'],
+        ['Credit Cost %', $('#ccValue').textContent],
+        ['Other / Fees', '0.3%'],
+        ['Net ROA', $('#roaValue').textContent]
+      ];
+      return tableFrom(rows, ['Driver','Value']);
+    }
+    function getPipelineTable(){
+      const rows = [
+        ['Approved', '₹850 Cr'],
+        ['Sanctioned', '₹620 Cr'],
+        ['Disbursed', $('#disbValue').textContent]
+      ];
+      return tableFrom(rows, ['Stage','Amount']);
+    }
+    function getGnpaTable(){
+      const rows = [
+        ['Home Loans', '1.6%'],
+        ['LAP', '3.8%'],
+        ['Net NPA', $('#nnpaValue').textContent]
+      ];
+      return tableFrom(rows, ['Bucket','GNPA / NNPA']);
+    }
+    function getAlertDetail(id){
+      const map = {
+        'mumbai-dsa': ['Mumbai Metro DSA','NPA spike to 4.2%; tighten sourcing; increase field audits.'],
+        'delhi-lap': ['Delhi NCR – LAP','High LTV >85%; revise pricing grid + stricter LTV cap.'],
+        'pune-branch': ['Pune Branch','Collections at 92%; deploy additional tele-calling; revisit promises to pay.'],
+        'bangalore': ['Bengaluru Region','Strong ROA 1.9%; scope to scale safe growth.'],
+        'dsga-108': ['DSGA 108 Cluster','EWS flagged; put accounts on watch-list; field visit planned.']
+      };
+      const row = map[id] || ['Cluster','Details unavailable'];
+      return '<p><strong>'+row[0]+'</strong></p><p>'+row[1]+'</p>';
+    }
+
+    /* ========== INIT ========== */
+    window.addEventListener('load', () => {
+      updateKPIs();
+      buildCharts();
+      updateCharts();
+    });
+  </script>
+</body>
+</html>
